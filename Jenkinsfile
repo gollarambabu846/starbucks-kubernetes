@@ -1,97 +1,111 @@
-pipeline{
+pipeline {
     agent any
-    tools{
+    
+    tools {
         jdk 'jdk'
         nodejs 'node17'
     }
+
     environment {
-        SCANNER_HOME=tool 'sonar-scanner'
+        SCANNER_HOME = tool 'sonar-scanner'
     }
+
     stages {
-        stage('clean workspace'){
-            steps{
-                cleanWs()
+
+        stage('Clean Workspace') {
+            steps { cleanWs() }
+        }
+
+        stage('Checkout') {
+            steps {
+                git branch: 'main',
+                    url: 'https://github.com/gollarambabu846/starbucks-kubernetes.git'
             }
         }
-        stage('Checkout from Git'){
-            steps{
-                git branch: 'main', changelog: false, poll: false, url: 'https://github.com/gollarambabu846/starbucks-kubernetes.git'
-            }
-        }
-        stage("Sonarqube Analysis "){
-            steps{
+
+        stage('SonarQube Analysis') {
+            steps {
                 withSonarQubeEnv('SonarQube') {
-                    sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=starbucks \
-                    -Dsonar.projectKey=starbucks '''
+                    sh '''
+                    $SCANNER_HOME/bin/sonar-scanner \
+                    -Dsonar.projectName=starbucks \
+                    -Dsonar.projectKey=starbucks
+                    '''
                 }
             }
         }
-         stage("quality gate"){
-           steps {
+
+        stage('Quality Gate') {
+            steps {
                 script {
-                    waitForQualityGate abortPipeline: false, credentialsId: 'SonarQube' 
+                    waitForQualityGate abortPipeline: false
                 }
-            } 
+            }
         }
-        
+
         stage('Install Dependencies') {
             steps {
-                sh "npm install"
-            }
-        }        
-        stage('TRIVY FS SCAN') {
-            steps {
-                sh "trivy fs . > trivyfs.txt"
+                sh 'npm install'
             }
         }
-        stage("Docker Build & Push"){
-            steps{
-                script{
-                   withDockerRegistry(credentialsId: 'docker', toolName: 'docker'){   
-                       sh "docker build -t starbucks ."
-                       sh "docker tag starbucks gollarambabu/starbucks:latest "
-                       sh "docker push gollarambabu/starbucks:latest "
+
+        stage('Trivy FS Scan') {
+            steps {
+                sh 'trivy fs . > trivyfs.txt'
+            }
+        }
+
+        stage('Docker Build & Push') {
+            steps {
+                script {
+                    withDockerRegistry(credentialsId: 'docker') {
+                        sh '''
+                        docker build -t starbucks .
+                        docker tag starbucks gollarambabu/starbucks:latest
+                        docker push gollarambabu/starbucks:latest
+                        '''
                     }
                 }
             }
         }
-        stage("TRIVY"){
-            steps{
-                sh "trivy image gollarambabu/starbucks:latest > trivyimage.txt" 
-            }
-        }
-        stage('App Deploy to Docker container'){
-            steps{
-                sh 'docker run -d --name starbucks -p 3000:3000 gollarambabu/starbucks:latest'
+
+        stage('Trivy Image Scan') {
+            steps {
+                sh 'trivy image gollarambabu/starbucks:latest > trivyimage.txt'
             }
         }
 
+        stage('Deploy to Docker') {
+            steps {
+                sh '''
+                docker rm -f starbucks || true
+                docker run -d --name starbucks -p 3000:3000 gollarambabu/starbucks:latest
+                '''
+            }
+        }
+
+        stage('Deploy to EKS') {
+            steps {
+                dir('kubernetes') {
+                    sh '''
+                    aws eks update-kubeconfig --region ap-south-1 --name rambabu
+                    kubectl apply -f manifest.yml
+                    kubectl get pods
+                    kubectl get svc
+                    '''
+                }
+            }
+        }
     }
+
     post {
-    always {
-        script {
-            def buildStatus = currentBuild.currentResult
-            def buildUser = currentBuild.getBuildCauses('hudson.model.Cause$UserIdCause')[0]?.userId ?: 'Github User'
-            
-            emailext (
-                subject: "Pipeline ${buildStatus}: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                body: """
-                    <p>This is a Jenkins starbucks CICD pipeline status.</p>
-                    <p>Project: ${env.JOB_NAME}</p>
-                    <p>Build Number: ${env.BUILD_NUMBER}</p>
-                    <p>Build Status: ${buildStatus}</p>
-                    <p>Started by: ${buildUser}</p>
-                    <p>Build URL: <a href="${env.BUILD_URL}">${env.BUILD_URL}</a></p>
-                """,
+        always {
+            emailext(
+                subject: "Pipeline ${currentBuild.currentResult}: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: "Build URL: ${env.BUILD_URL}",
                 to: 'gollarambabu70@gmail.com',
-                from: 'gollarambabu70@gmail.com',
-                replyTo: 'gollarambabu70@gmail.com',
-                mimeType: 'text/html',
                 attachmentsPattern: 'trivyfs.txt,trivyimage.txt'
             )
-           }
-       }
-
+        }
     }
-
 }
