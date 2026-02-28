@@ -26,12 +26,12 @@ pipeline{
                 }
             }
         }
-        stage("quality gate"){
-           steps {
+        stage("Quality Gate") {
+            steps {
                 script {
-                    waitForQualityGate abortPipeline: false, credentialsId: 'SonarQube' 
+                    waitForQualityGate abortPipeline: true
                 }
-            } 
+            }
         }
         stage('Install Dependencies') {
             steps {
