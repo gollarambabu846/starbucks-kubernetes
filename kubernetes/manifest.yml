@@ -19,7 +19,7 @@ spec:
       - name: starbucks-container
         image: gollarambabu/starbucks
         ports:
-        - containerPort: 3000
+        - containerPort: 4000
 ---
 apiVersion: v1
 kind: Service

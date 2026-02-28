@@ -79,7 +79,7 @@ pipeline {
             steps {
                 sh '''
                 docker rm -f starbucks || true
-                docker run -d --name starbucks -p 3000:3000 gollarambabu/starbucks:latest
+                docker run -d --name starbucks -p 4000:4000 gollarambabu/starbucks:latest
                 '''
             }
         }
